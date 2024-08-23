@@ -14,7 +14,7 @@ import (
 // Protocol sends and receive the dqlite message on the wire.
 type Protocol struct {
 	version uint64        // Protocol version
-	conn    net.Conn      // Underlying network connection.
+	Conn    net.Conn      // Underlying network connection.
 	closeCh chan struct{} // Stops the heartbeat when the connection gets closed
 	mu      sync.Mutex    // Serialize requests
 	netErr  error         // A network error occurred
@@ -23,7 +23,7 @@ type Protocol struct {
 func newProtocol(version uint64, conn net.Conn) *Protocol {
 	protocol := &Protocol{
 		version: version,
-		conn:    conn,
+		Conn:    conn,
 		closeCh: make(chan struct{}),
 	}
 
@@ -56,9 +56,9 @@ func (p *Protocol) Call(ctx context.Context, request, response *Message) (err er
 
 	// Honor the ctx deadline, if present.
 	if deadline, ok := ctx.Deadline(); ok {
-		p.conn.SetDeadline(deadline)
+		p.Conn.SetDeadline(deadline)
 		budget = time.Until(deadline)
-		defer p.conn.SetDeadline(time.Time{})
+		defer p.Conn.SetDeadline(time.Time{})
 	}
 
 	desc := requestDesc(request.mtype)
@@ -89,8 +89,8 @@ func (p *Protocol) Interrupt(ctx context.Context, request *Message, response *Me
 
 	// Honor the ctx deadline, if present.
 	if deadline, ok := ctx.Deadline(); ok {
-		p.conn.SetDeadline(deadline)
-		defer p.conn.SetDeadline(time.Time{})
+		p.Conn.SetDeadline(deadline)
+		defer p.Conn.SetDeadline(time.Time{})
 	}
 
 	EncodeInterrupt(request, 0)
@@ -117,7 +117,7 @@ func (p *Protocol) Interrupt(ctx context.Context, request *Message, response *Me
 // Close the client connection.
 func (p *Protocol) Close() error {
 	close(p.closeCh)
-	return p.conn.Close()
+	return p.Conn.Close()
 }
 
 func (p *Protocol) send(req *Message) error {
@@ -133,7 +133,7 @@ func (p *Protocol) send(req *Message) error {
 }
 
 func (p *Protocol) sendHeader(req *Message) error {
-	n, err := p.conn.Write(req.header[:])
+	n, err := p.Conn.Write(req.header[:])
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func (p *Protocol) sendHeader(req *Message) error {
 
 func (p *Protocol) sendBody(req *Message) error {
 	buf := req.body.Bytes[:req.body.Offset]
-	n, err := p.conn.Write(buf)
+	n, err := p.Conn.Write(buf)
 	if err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func (p *Protocol) recvFill(buf []byte) (int, error) {
 	//
 	// This technique is copied from bufio.Reader.
 	for i := messageMaxConsecutiveEmptyReads; i > 0; i-- {
-		n, err := p.conn.Read(buf)
+		n, err := p.Conn.Read(buf)
 		if n < 0 {
 			panic(errNegativeRead)
 		}

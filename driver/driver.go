@@ -21,7 +21,9 @@ import (
 	"io"
 	"math"
 	"net"
+	"os"
 	"reflect"
+	"sync"
 	"syscall"
 	"time"
 
@@ -235,6 +237,30 @@ type Connector struct {
 	driver *Driver
 }
 
+var connectionsLock sync.Mutex
+var connections = map[*Conn]bool{}
+
+func init() {
+	fmt.Fprintln(os.Stderr, "Started logging connection ip stats")
+	go func() {
+		for {
+			ipCount := map[string]int{}
+			connectionsLock.Lock()
+			for conn, _ := range connections {
+				ip := conn.protocol.Conn.RemoteAddr().String()
+				ipCount[ip] += 1
+			}
+			connectionsLock.Unlock()
+			s := "<ip-count> "
+			for ip, n := range ipCount {
+				s += fmt.Sprintf("%s: %d, ", ip, n)
+			}
+			fmt.Fprintln(os.Stderr, s)
+			time.Sleep(time.Second * 3)
+		}
+	}()
+}
+
 // Connect returns a connection to the database.
 func (c *Connector) Connect(ctx context.Context) (driver.Conn, error) {
 	if c.driver.context != nil {
@@ -278,6 +304,9 @@ func (c *Connector) Connect(ctx context.Context) (driver.Conn, error) {
 		return nil, driverError(conn.log, errors.Wrap(err, "failed to open database"))
 	}
 
+	connectionsLock.Lock()
+	defer connectionsLock.Unlock()
+	connections[conn] = true
 	return conn, nil
 }
 
@@ -474,6 +503,9 @@ func (c *Conn) Exec(query string, args []driver.Value) (driver.Result, error) {
 // Close when there's a surplus of idle connections, it shouldn't be necessary
 // for drivers to do their own connection caching.
 func (c *Conn) Close() error {
+	connectionsLock.Lock()
+	defer connectionsLock.Unlock()
+	delete(connections, c)
 	return c.protocol.Close()
 }
 
